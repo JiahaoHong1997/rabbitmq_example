@@ -51,6 +51,7 @@ func (r *RabbitMQ) failOnErr(err error, message string) {
 	}
 }
 
+// 只使用默认交换机情况下的实例创建、发送和接收方法
 // step1:创建Simple模式下的RabbitMQ实例
 func NewRabbitMQSimple(queueName string) *RabbitMQ {
 	return NewRabbitMQ(queueName, "", "") // Simple模式下只使用queque，是有默认交换机的（direct）
@@ -97,7 +98,7 @@ func (r *RabbitMQ) ConsumeSimple() {
 		nil,   // 额外属性
 	)
 	if err != nil {
-		fmt.Println()
+		fmt.Println(err)
 	}
 
 	// 2.接受消息
@@ -123,6 +124,108 @@ func (r *RabbitMQ) ConsumeSimple() {
 		}
 	}()
 
+	log.Printf("[*] Waiting for messages, To exit press CTRL+C")
+	<-forever
+}
+
+// 订阅模式
+// 订阅模式下创建RabbitMQ实例
+func NewRabbitMQPubSub(exchangeName string) *RabbitMQ {
+	// 创建RabbitMQ实例
+	rabbitmq := NewRabbitMQ("", exchangeName, "")
+	return rabbitmq
+}
+
+// 订阅模式下生产
+func (r *RabbitMQ) PublishPub(message string) {
+	// 1.尝试创建交换机
+	err := r.channel.ExchangeDeclare(
+		r.Exchange,
+		"fanout",
+		true,
+		false,
+		false, // 如果设置为true，表示这个exchange不可以被client用来推送消息，仅用来进行exchange和exchange之间的绑定
+		false,
+		nil,
+	)
+	r.failOnErr(err, "failed to declare an exchange")
+
+	// 2.发送消息
+	err = r.channel.Publish(
+		r.Exchange,
+		"",
+		false,
+		false,
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(message)})
+	r.failOnErr(err, "failed to publish message")
+}
+
+// 订阅模式消费端代码
+func (r *RabbitMQ) RecieveSub() {
+	// 1.试探性创建交换机
+	err := r.channel.ExchangeDeclare(
+		r.Exchange,
+		"fanout", // 交换机类型
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	r.failOnErr(err, "failed to declare an exchange")
+
+	// 2.试探性创建队列，这里注意队列名称不要写
+	q, err := r.channel.QueueDeclare(
+		"", //随机生成队列名称
+		false,
+		false,
+		true, // 排他性
+		false,
+		nil,
+	)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+
+	// 3.绑定队列到交换机中
+	err = r.channel.QueueBind(
+		q.Name, // 队列名称
+		"",     // 在pub/sub模式下，这里的key要为空
+		r.Exchange,
+		false,
+		nil,
+	)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+
+	// 4.消费队列
+	msgs, err := r.channel.Consume(
+		q.Name,
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			// 实现我们要处理的逻辑函数
+			log.Printf("Recieve a message: %s", d.Body)
+		}
+	}()
 	log.Printf("[*] Waiting for messages, To exit press CTRL+C")
 	<-forever
 }
