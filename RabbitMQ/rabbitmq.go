@@ -229,3 +229,205 @@ func (r *RabbitMQ) RecieveSub() {
 	log.Printf("[*] Waiting for messages, To exit press CTRL+C")
 	<-forever
 }
+
+
+// Routing模式
+// 创建RabbitMQ实例
+func NewRabbitMQRouting(exchangeName string, routingKey string) *RabbitMQ {
+	rabbitmq := NewRabbitMQ("", exchangeName, routingKey)
+	return rabbitmq
+}
+
+// Routing模式发送消息
+func (r *RabbitMQ) PublishRouting(message string) {
+	// 1.尝试创建交换机
+	err := r.channel.ExchangeDeclare(
+		r.Exchange,
+		"direct",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+
+	r.failOnErr(err,"failed to drclare an exchange")
+
+	// 2.发送消息
+	err = r.channel.Publish(
+		r.Exchange,
+		r.Key,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType: "test/plain",
+			Body: []byte(message),})
+	r.failOnErr(err, "failed to publish message!")
+}
+
+// 3.Routing模式接收消息
+func (r *RabbitMQ) RecieveRouting() {
+	// 1.尝试创建交换机
+	err := r.channel.ExchangeDeclare(
+		r.Exchange,
+		"direct",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	r.failOnErr(err, "failed to declare a exchange!")
+
+	// 2.尝试创建队列，这里的队列名称不要写
+	q, err := r.channel.QueueDeclare(
+		"",
+		false,
+		false,
+		true,
+		false,
+		nil,
+	)
+	r.failOnErr(err, "failed to declare a queue!")
+
+	// 3.绑定队列到exchange中
+	err = r.channel.QueueBind(
+		q.Name,
+		r.Key,
+		r.Exchange,
+		false,
+		nil,
+	)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	// 4.消费消息
+	msgs, err := r.channel.Consume(
+		q.Name,
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			// 实现我们要处理的逻辑函数
+			log.Printf("Recieve a message: %s", d.Body)
+		}
+	}()
+	
+	log.Printf("[*] Waiting for messages, To exit press CTRL+C")
+	<-forever
+}
+
+// Topic模式
+// 创建RabbitMQ实例
+func NewRabbitMQTopic(exchangeName string, routingKey string) *RabbitMQ {
+	rabbitmq := NewRabbitMQ("",exchangeName,routingKey)
+	return rabbitmq
+}
+
+// Topic模式发送消息
+func (r *RabbitMQ) PublishTopic(message string) {
+	// 1.尝试创建交换机
+	err := r.channel.ExchangeDeclare(
+		r.Exchange,
+		"topic",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+
+	r.failOnErr(err, "failed to declare an exchange!")
+
+	// 2.发送消息
+	err = r.channel.Publish(
+		r.Exchange,
+		r.Key,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body: []byte(message),})
+
+	r.failOnErr(err, "failed to publish message!")
+}
+
+// Topic模式接收消息
+// 要注意key的规则
+// 其中“*”用于匹配一个单词，“#”用于匹配多个单词（可以是零个）
+// 匹配 hjh.* 表示匹配 hjh.hello,但是 hjh.hello.one 需要用 hjh.# 才能匹配到
+func (r *RabbitMQ) RecieveTopic() {
+	// 1.试探性创建交换机
+	err := r.channel.ExchangeDeclare(
+		r.Exchange,
+		"topic",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+
+	r.failOnErr(err, "failed to declare an exchange!")
+
+	// 2.试探性创建队列
+	q, err := r.channel.QueueDeclare(
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	r.failOnErr(err, "failed to declare a queue!")
+
+	// 3.绑定队列到exchange中
+	err = r.channel.QueueBind(
+		q.Name,
+		r.Key,
+		r.Exchange,
+		false,
+		nil,
+	)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	// 4.消费消息
+	msgs, err := r.channel.Consume(
+		q.Name,
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	forever := make(chan bool)
+
+	go func() {
+		for d := range msgs {
+			// 实现我们要处理的逻辑函数
+			log.Printf("Recieve a message: %s", d.Body)
+		}
+	}()
+	
+	log.Printf("[*] Waiting for messages, To exit press CTRL+C")
+	<-forever
+}
